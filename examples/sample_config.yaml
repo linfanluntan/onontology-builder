@@ -1,66 +1,81 @@
-# ─── PDF Ontology Builder Configuration ───────────────────────
+# ─── ORN Ontology Builder Configuration ────────────────────
+# Osteoradionecrosis Grade/Stage Ontology from PDF Literature
 # Copy this file to config.yaml and customize for your project.
 
-# ── PDF Extraction ─────────────────────────────────────────────
+# ── PDF Extraction ─────────────────────────────────────────
 extraction:
-  pdf_directory: "data/pdfs/"          # Path to input PDF files
-  ocr_enabled: true                     # Enable OCR fallback for scanned PDFs
-  ocr_language: "eng"                   # Tesseract language code
-  min_text_length: 50                   # Min chars per page before OCR triggers
-  recursive: false                      # Recurse into subdirectories
+  pdf_directory: "data/ornj_papers/"   # Path to ORNJ classification PDFs
+  ocr_enabled: true                     # Enable OCR for scanned older papers
+  ocr_language: "eng"
+  min_text_length: 50
+  recursive: false
 
-# ── Text Preprocessing ─────────────────────────────────────────
+# ── Text Preprocessing ─────────────────────────────────────
 preprocessing:
   remove_headers_footers: true
   normalize_whitespace: true
   fix_hyphenation: true
   min_segment_length: 20
 
-# ── Concept Extraction ─────────────────────────────────────────
+# ── Concept Extraction ─────────────────────────────────────
 concepts:
-  spacy_model: "en_core_web_sm"         # Or en_core_web_lg for better accuracy
-  min_frequency: 2                      # Min occurrences to keep a concept
+  spacy_model: "en_core_sci_lg"         # SciSpaCy biomedical model (recommended)
+  # fallback: "en_core_web_sm"          # General spaCy model
+  min_frequency: 2
   max_concepts: 500
   tfidf_top_n: 200
-  entity_types:                         # spaCy NER types to extract
-    - ORG
-    - PERSON
-    - GPE
-    - PRODUCT
-    - EVENT
-    - LAW
+  entity_types:
+    - DISEASE                            # ORNJ, osteonecrosis
+    - ANATOMY                            # mandible, maxilla, alveolar bone
+    - TREATMENT                          # HBO, PENTOCLO, sequestrectomy
+    - FINDING                            # bone exposure, fracture, fistula
+    - ORG                                # ASCO, ISOO-MASCC, ORAL Consortium
 
-# ── Relation Extraction ────────────────────────────────────────
+# ── Relation Extraction ────────────────────────────────────
 relations:
-  use_hearst_patterns: true             # Hearst-pattern hypernym extraction
-  use_dependency_parsing: true          # spaCy dependency-based SVO triples
+  use_hearst_patterns: true
+  use_dependency_parsing: true
   min_confidence: 0.3
+  # Custom patterns for classification literature:
+  custom_patterns:
+    - "[System] defines [Grade] as [Criterion]"
+    - "[Finding] indicates [Stage]"
+    - "[Treatment] is recommended for [Grade]"
 
-# ── LLM Extraction (optional) ──────────────────────────────────
+# ── LLM Extraction ─────────────────────────────────────────
 llm:
-  enabled: false                        # Set true to use LLM-accelerated extraction
+  enabled: true
   provider: "anthropic"
   model: "claude-sonnet-4-20250514"
-  api_key_env: "ANTHROPIC_API_KEY"      # Environment variable name for API key
-  chunk_size: 3000                      # Max chars per API call
+  api_key_env: "ANTHROPIC_API_KEY"
+  chunk_size: 3000
   max_tokens: 4096
-  domain_context: ""                    # Optional domain description for better results
+  domain_context: "osteoradionecrosis of the jaw classification and staging systems"
 
-# ── Ontology Construction ───────────────────────────────────────
+# ── Ontology Construction ───────────────────────────────────
 ontology:
-  iri: "http://example.org/ontology"
-  name: "MyDomainOntology"
+  iri: "http://example.org/orn-ontology"
+  name: "ORNGradeStageOntology"
   format: "rdfxml"                      # rdfxml, turtle, ntriples
-  output_path: "output/ontology.owl"
+  output_path: "output/orn_ontology.owl"
+  snomed_alignment: true
+  snomed_mappings:
+    ORNJ: "399098001"                   # Osteoradionecrosis
+    PathologicalFracture: "268029009"
+    BoneExposure: "427821009"
+    HyperbaricOxygenTherapy: "18678000"
+    Mandible: "91609006"
+    Maxilla: "70925003"
 
-# ── Validation & Reasoning ──────────────────────────────────────
+# ── Validation ──────────────────────────────────────────────
 validation:
   enabled: true
-  reasoner: "hermit"                    # hermit or pellet (requires Java)
+  reasoner: "hermit"
+  competency_questions: 38
 
-# ── Visualization ───────────────────────────────────────────────
+# ── Visualization ───────────────────────────────────────────
 visualization:
   plot_hierarchy: true
-  save_plot: "output/ontology_graph.png"
+  save_plot: "output/orn_ontology_graph.png"
   export_webvowl: true
-  webvowl_path: "output/ontology.ttl"
+  webvowl_path: "output/orn_ontology.ttl"

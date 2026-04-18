@@ -1,6 +1,7 @@
 """
-LLM-Accelerated Extraction Module
-Uses Claude API to extract structured knowledge (concepts, relations, taxonomy)
+LLM-Accelerated Extraction Module for ORNJ Domain
+Uses Claude API to extract structured ORNJ classification knowledge
+(grades, stages, clinical/radiographic criteria, treatment recommendations)
 from document text for ontology construction.
 """
 
@@ -10,7 +11,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_SYSTEM_PROMPT = """You are an expert knowledge engineer. Your task is to extract structured ontological knowledge from the provided text.
+EXTRACTION_SYSTEM_PROMPT = """You are an expert biomedical knowledge engineer specializing in head and neck cancer complications. Your task is to extract structured ontological knowledge about osteoradionecrosis of the jaw (ORNJ) classification systems from the provided text.
 
 Extract the following and return ONLY valid JSON (no markdown, no backticks):
 
@@ -20,8 +21,9 @@ Extract the following and return ONLY valid JSON (no markdown, no backticks):
       "name": "PascalCaseName",
       "label": "Human Readable Label",
       "type": "class",
-      "definition": "Brief definition",
-      "parent": "ParentClassName or empty string"
+      "definition": "Brief clinical definition",
+      "parent": "ParentClassName or empty string",
+      "source_system": "Name of the classification system if applicable"
     }
   ],
   "relations": [
@@ -42,12 +44,17 @@ Extract the following and return ONLY valid JSON (no markdown, no backticks):
   ]
 }
 
-Guidelines:
+Domain-specific guidelines:
+- Identify ORNJ classification/grading/staging systems and their individual grades/stages as separate classes.
+- Capture conditional classification criteria as relations, e.g.:
+  - "Grade III is defined as ORN below the inferior alveolar canal" → NotaniGradeIII hasCriterion BelowInferiorAlveolarCanal
+  - "Stage I responds to HBO alone" → MarxStageI hasRecommendedTreatment HyperbaricOxygenTherapy
+- Distinguish clinical findings (bone exposure, fistula, pain) from radiographic findings (osteolysis, sclerosis, fracture on imaging).
+- Capture anatomical landmarks: alveolar bone, basilar bone, inferior alveolar canal, mandible, maxilla, maxillary sinus.
+- Identify risk factors: radiation dose, smoking, dental extraction timing, periodontal status.
 - Use PascalCase for class names, camelCase for relations/attributes.
-- Identify is-a (taxonomy), part-of, causal, functional, and associative relations.
-- Be precise and domain-specific. Prefer established terminology.
-- Include parent classes to form a taxonomy hierarchy.
-- Only extract knowledge that is explicitly stated or strongly implied in the text.
+- Only extract knowledge explicitly stated or strongly implied in the text.
+- Map to SNOMED-CT concepts where obvious (e.g., osteoradionecrosis → SNOMED 399098001).
 """
 
 
@@ -61,7 +68,7 @@ class LLMKnowledge:
 
 
 class LLMExtractor:
-    """Extract ontological knowledge using Claude API."""
+    """Extract ORNJ ontological knowledge using Claude API."""
 
     def __init__(
         self,
@@ -69,7 +76,7 @@ class LLMExtractor:
         model: str = "claude-sonnet-4-20250514",
         max_tokens: int = 4096,
         chunk_size: int = 3000,
-        domain_context: str = "",
+        domain_context: str = "osteoradionecrosis of the jaw classification and staging systems",
     ):
         try:
             import anthropic
@@ -95,7 +102,6 @@ class LLMExtractor:
                 knowledge.relations.extend(result.get("relations", []))
                 knowledge.attributes.extend(result.get("attributes", []))
 
-        # Deduplicate
         knowledge.concepts = self._deduplicate_concepts(knowledge.concepts)
         knowledge.relations = self._deduplicate_relations(knowledge.relations)
 
@@ -117,7 +123,6 @@ class LLMExtractor:
             all_knowledge.relations.extend(k.relations)
             all_knowledge.attributes.extend(k.attributes)
 
-        # Final deduplication
         all_knowledge.concepts = self._deduplicate_concepts(all_knowledge.concepts)
         all_knowledge.relations = self._deduplicate_relations(all_knowledge.relations)
 
@@ -125,11 +130,7 @@ class LLMExtractor:
 
     def _call_api(self, text_chunk: str) -> dict | None:
         """Call Claude API to extract knowledge from a text chunk."""
-        user_content = f"Extract ontological knowledge from this text:\n\n{text_chunk}"
-        if self.domain_context:
-            user_content = (
-                f"Domain context: {self.domain_context}\n\n{user_content}"
-            )
+        user_content = f"Domain context: {self.domain_context}\n\nExtract ORNJ ontological knowledge from this text:\n\n{text_chunk}"
 
         try:
             response = self.client.messages.create(
@@ -138,9 +139,7 @@ class LLMExtractor:
                 system=EXTRACTION_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
             )
-            raw = response.content[0].text
-            # Parse JSON, stripping any accidental markdown fences
-            raw = raw.strip()
+            raw = response.content[0].text.strip()
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[1]
             if raw.endswith("```"):
@@ -155,7 +154,7 @@ class LLMExtractor:
 
     @staticmethod
     def _chunk_text(text: str, chunk_size: int) -> list[str]:
-        """Split text into chunks, breaking at paragraph boundaries."""
+        """Split text into chunks at paragraph boundaries."""
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = ""

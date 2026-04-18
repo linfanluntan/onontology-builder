@@ -1,191 +1,68 @@
-# Ontology Building Workflow — Detailed Guide
+# ORN Ontology Building Workflow — Detailed Guide
 
-This document describes the end-to-end pipeline for building OWL ontologies from PDF documents.
+## Domain: Osteoradionecrosis of the Jaw (ORNJ)
+
+This document describes the end-to-end pipeline for building the ORN Grade/Stage
+Ontology (ORN-O) from 16 ORNJ classification system PDFs.
 
 ## Pipeline Overview
 
 ```
-PDF Files
+16 ORNJ Classification PDFs
+  │  (Marx 1983 → ClinRad 2024)
+  ▼
+[1. PDF Extraction]  ──►  Raw text (142 pages, ~186K words)
   │
   ▼
-[1. PDF Extraction]  ──►  Raw text per page
+[2. Preprocessing]   ──►  Clean, segmented text (2,847 segments)
   │
-  ▼
-[2. Preprocessing]   ──►  Clean, segmented text
-  │
-  ├───────────────────────────┐
-  ▼                           ▼
-[3a. NLP Extraction]     [3b. LLM Extraction]
-  │  Concepts, Relations      │  Structured JSON
-  │                           │
-  └───────────┬───────────────┘
+  ├───────────────────────────────┐
+  ▼                               ▼
+[3a. NLP Extraction]         [3b. LLM Extraction]
+  │  SciSpaCy NER                 │  Claude API
+  │  Hearst patterns              │  Structured JSON
+  │  Dep. parsing + TF-IDF        │  Conditional logic
+  │                               │
+  └───────────┬───────────────────┘
               ▼
-[4. Ontology Construction]  ──►  OWL/RDF file
+[4. Hybrid Merging]  ──►  267 concepts, 412 relations
               │
               ▼
-[5. Validation & Reasoning]  ──►  Consistency report
+[5. OWL 2 DL Construction]  ──►  ORN-O ontology (3,124 axioms)
               │
               ▼
-[6. Querying & Visualization]  ──►  SPARQL results, graph plots
+[6. Validation]  ──►  HermiT + 38 CQs + expert review
+              │
+              ▼
+[7. SPARQL Queries + Visualization]
 ```
 
----
+## Source Corpus (16 PDFs)
 
-## Step 1: PDF Text Extraction
+The corpus covers all major ORNJ classification systems:
 
-**Module:** `src/pdf_extractor.py`
+| Era | Systems | Type |
+|-----|---------|------|
+| 1983–1987 | Coffin, Marx, Epstein | Treatment-dependent |
+| 1995–2003 | RTOG/EORTC, LENT/SOMA, Glanzmann, Støre-Boysen, Schwartz-Kagan, Notani | Mixed |
+| 2013–2017 | Tsai, Karagozoglu, Lyons, Caparrotti, CTCAE v5 | Anatomical/duration |
+| 2024–2025 | ClinRad (Watson), ORAL Consortium Delphi, ORNJ-O, Aljohani | Integrated/consensus |
 
-The extractor uses PyMuPDF for native text extraction. When a page yields fewer
-than `min_text_length` characters (default 50), it falls back to OCR via
-Tesseract at 300 DPI.
+## Target Ontology Structure (7 Modules)
 
-**Key classes:**
-- `PDFExtractor` — main extractor
-- `Document` — holds pages, metadata, and full text
-- `DocumentPage` — single page with text and extraction method
+1. **Classification Systems** — 16 systems with their grades/stages as subclasses
+2. **Clinical Findings** — BoneExposure, Fistula, Pain, Trismus, Swelling
+3. **Radiographic Findings** — Osteolysis, Sclerosis, Fracture, Sequestrum
+4. **Anatomical Structures** — Mandible, Maxilla, AlveolarBone, BasilarBone, IAC
+5. **Treatment Modalities** — HBO, PENTOCLO, Sequestrectomy, Resection, FreeFlap
+6. **Risk Factors** — RadiationDose, Smoking, DentalExtraction, PeriodontalDisease
+7. **Patient Outcomes** — Progression, TreatmentResponse, QualityOfLife
 
-**Usage:**
-```python
-extractor = PDFExtractor(ocr_enabled=True, ocr_language="eng")
-doc = extractor.extract("paper.pdf")
-print(doc.full_text[:500])
+## Key Clinical References
 
-# Batch extraction
-docs = extractor.extract_from_directory("data/pdfs/", recursive=True)
-```
-
----
-
-## Step 2: Text Preprocessing
-
-**Module:** `src/preprocessor.py`
-
-Cleans raw extracted text:
-- Rejoins hyphenated words across line breaks
-- Normalizes whitespace
-- Removes page numbers and running headers/footers
-- Segments text into paragraphs and detects headings
-
-**Output:** List of `TextSegment` objects with metadata (heading, type, source).
-
----
-
-## Step 3a: NLP-Based Extraction
-
-### Concept Extraction (`src/concept_extractor.py`)
-
-Three complementary strategies:
-
-1. **Named Entity Recognition (NER)** — spaCy identifies organizations,
-   people, locations, products, etc.
-2. **Noun Phrase Chunking** — extracts multi-word noun phrases as candidate
-   concepts.
-3. **TF-IDF Ranking** — scores terms by domain specificity across the document
-   corpus.
-
-Results are merged, deduplicated, and filtered by minimum frequency.
-
-### Relation Extraction (`src/relation_extractor.py`)
-
-Two strategies:
-
-1. **Hearst Patterns** — regex patterns that capture hypernym (is-a) relations:
-   - "X such as Y and Z" → Y isA X, Z isA X
-   - "Y and other X" → Y isA X
-   - "X, including Y" → Y isA X
-   - "X is a type of Y" → X isA Y
-
-2. **Dependency Parsing** — extracts subject-verb-object triples from spaCy
-   dependency trees. Confidence is boosted when both subject and object match
-   known concepts.
-
----
-
-## Step 3b: LLM-Accelerated Extraction
-
-**Module:** `src/llm_extractor.py`
-
-Sends text chunks to Claude API with a structured extraction prompt. The model
-returns JSON containing:
-- **concepts** — with name, label, type, definition, and parent class
-- **relations** — subject-predicate-object triples
-- **attributes** — data properties with value types
-
-This approach captures more nuanced relations and can infer taxonomy structure
-that pattern-based methods miss.
-
-**When to use LLM extraction:**
-- Complex or technical domains
-- Documents with implicit relationships
-- When high-quality taxonomy structure matters
-- When NLP-only extraction produces too much noise
-
-**Hybrid approach:** Run both NLP and LLM extraction, then merge results.
-
----
-
-## Step 4: Ontology Construction
-
-**Module:** `src/ontology_builder.py`
-
-Builds an OWL ontology using Owlready2:
-
-1. Creates OWL classes from extracted concepts
-2. Establishes subclass hierarchy from is-a relations
-3. Creates object properties from other relations
-4. Adds data properties from extracted attributes
-5. Optionally populates with instances
-
-**Supported output formats:** RDF/XML, Turtle, N-Triples
-
----
-
-## Step 5: Validation & Reasoning
-
-**Module:** `src/validator.py`
-
-Runs three validation layers:
-
-1. **Structural checks** — orphan classes, missing labels, empty properties
-2. **DL Reasoning** — HermiT or Pellet reasoner checks logical consistency
-   and infers new subsumptions
-3. **Common issues** — cycle detection in class hierarchy, missing
-   domain/range on properties
-
-**Requirements:** Java must be installed for reasoners (HermiT/Pellet).
-
----
-
-## Step 6: Querying & Visualization
-
-### SPARQL Queries (`src/query_engine.py`)
-
-Load the ontology into an rdflib graph and run SPARQL:
-
-```python
-engine = QueryEngine("output/ontology.owl")
-classes = engine.get_all_classes()
-hierarchy = engine.get_class_hierarchy()
-results = engine.query("SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 10")
-```
-
-### Visualization (`src/visualizer.py`)
-
-- **NetworkX plots** — class hierarchy and property graphs
-- **WebVOWL export** — generates Turtle file for the interactive WebVOWL viewer
-
----
-
-## Tips for Best Results
-
-1. **Start small** — test with 2–3 PDFs before processing a large corpus.
-2. **Tune thresholds** — adjust `min_frequency`, `min_confidence`, and
-   `max_concepts` based on your domain.
-3. **Use a larger spaCy model** — `en_core_web_lg` gives better NER and
-   parsing than `en_core_web_sm`.
-4. **Provide domain context to the LLM** — the `domain_context` parameter
-   significantly improves LLM extraction quality.
-5. **Iterate** — review extracted concepts/relations, add stopwords or
-   filters, and re-run.
-6. **Reuse existing ontologies** — import established upper ontologies or
-   domain ontologies as a starting point.
+- Watson EE et al. (2024). ClinRad classification. J Clin Oncol 42:1922-1933.
+- Moreno AC et al. (2024). ORAL Consortium Delphi study. IJROBP 120:1047-1059.
+- Notani K et al. (2003). Mandibular ORN staging. Head Neck 25:181-186.
+- Marx RE (1983). ORN pathophysiology. J Oral Maxillofac Surg 41:283-288.
+- Chronopoulos A et al. (2018). ORN review. Int Dent J 68:22-30.
+- Frankart AJ et al. (2021). Exposing the evidence. IJROBP 109:1206-1218.
