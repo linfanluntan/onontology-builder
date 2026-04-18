@@ -1,0 +1,66 @@
+# ─── PDF Ontology Builder Configuration ───────────────────────
+# Copy this file to config.yaml and customize for your project.
+
+# ── PDF Extraction ─────────────────────────────────────────────
+extraction:
+  pdf_directory: "data/pdfs/"          # Path to input PDF files
+  ocr_enabled: true                     # Enable OCR fallback for scanned PDFs
+  ocr_language: "eng"                   # Tesseract language code
+  min_text_length: 50                   # Min chars per page before OCR triggers
+  recursive: false                      # Recurse into subdirectories
+
+# ── Text Preprocessing ─────────────────────────────────────────
+preprocessing:
+  remove_headers_footers: true
+  normalize_whitespace: true
+  fix_hyphenation: true
+  min_segment_length: 20
+
+# ── Concept Extraction ─────────────────────────────────────────
+concepts:
+  spacy_model: "en_core_web_sm"         # Or en_core_web_lg for better accuracy
+  min_frequency: 2                      # Min occurrences to keep a concept
+  max_concepts: 500
+  tfidf_top_n: 200
+  entity_types:                         # spaCy NER types to extract
+    - ORG
+    - PERSON
+    - GPE
+    - PRODUCT
+    - EVENT
+    - LAW
+
+# ── Relation Extraction ────────────────────────────────────────
+relations:
+  use_hearst_patterns: true             # Hearst-pattern hypernym extraction
+  use_dependency_parsing: true          # spaCy dependency-based SVO triples
+  min_confidence: 0.3
+
+# ── LLM Extraction (optional) ──────────────────────────────────
+llm:
+  enabled: false                        # Set true to use LLM-accelerated extraction
+  provider: "anthropic"
+  model: "claude-sonnet-4-20250514"
+  api_key_env: "ANTHROPIC_API_KEY"      # Environment variable name for API key
+  chunk_size: 3000                      # Max chars per API call
+  max_tokens: 4096
+  domain_context: ""                    # Optional domain description for better results
+
+# ── Ontology Construction ───────────────────────────────────────
+ontology:
+  iri: "http://example.org/ontology"
+  name: "MyDomainOntology"
+  format: "rdfxml"                      # rdfxml, turtle, ntriples
+  output_path: "output/ontology.owl"
+
+# ── Validation & Reasoning ──────────────────────────────────────
+validation:
+  enabled: true
+  reasoner: "hermit"                    # hermit or pellet (requires Java)
+
+# ── Visualization ───────────────────────────────────────────────
+visualization:
+  plot_hierarchy: true
+  save_plot: "output/ontology_graph.png"
+  export_webvowl: true
+  webvowl_path: "output/ontology.ttl"
